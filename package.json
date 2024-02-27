@@ -1,0 +1,25 @@
+{
+  "name": "steamiq_eval",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@types/node": "^20.11.19",
+    "azure-iot-device": "^1.18.3",
+    "azure-iot-device-mqtt": "^1.16.3",
+    "csv": "^6.3.6",
+    "dotenv": "^16.4.5",
+    "nanoid": "^5.0.6",
+    "typescript": "^5.3.3"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.10"
+  }
+}

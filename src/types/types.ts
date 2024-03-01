@@ -39,14 +39,23 @@ type NewSample = {
 };
 
 // The array of these entities is retained between function evaluations
-type RetainedSample = {
+type RetainedActiveSample = {
   timestamp: Timestamp;
   activity: number;
   cycleCounts: number;
   stype: SampleTypes;
   inTripletHiCc: 0 | 1;
   loCcScore: number;
+  //temperature: number|null;
+};
+
+type RetainedLastSample = {
+  timestamp: Timestamp;
+  activity: number;
+  cycleCounts: number;
+  stype: SampleTypes;
   temperature: number|null;
+  totalLossesKg: number;
 };
 
 // The common information about a trap, needed for the status evaluation
@@ -73,8 +82,8 @@ type RetainedData = {
   totalLossesCo2: number;
   hoursOfLeaking: number;
   prevTrapIndex: number | null;
-  arrActSamples: RetainedSample[];
-  arrLastSamples: RetainedSample[];
+  arrActSamples: RetainedActiveSample[];
+  arrLastSamples: RetainedLastSample[];
 };
 
 // The shape of a typical output of each invocation of the eval function.

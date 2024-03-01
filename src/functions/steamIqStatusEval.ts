@@ -41,8 +41,8 @@ function evalTrapStatus(
     prevTrapIndex,
   } = retainedData;
 
-  let arrActSamples: RetainedSample[] = retainedData.arrActSamples.slice();
-  let arrLastSamples: RetainedSample[] = retainedData.arrLastSamples.slice();
+  let arrActSamples: RetainedActiveSample[] = retainedData.arrActSamples.slice();
+  let arrLastSamples: RetainedLastSample[] = retainedData.arrLastSamples.slice();
 
   let numLoMid: number;
   let numHiExtraHi: number;
@@ -183,7 +183,6 @@ function evalTrapStatus(
         stype: sample.stype,
         inTripletHiCc: 0,
         loCcScore: 0,
-        temperature: sample.temperature,
       });
     }
 
@@ -448,9 +447,8 @@ function evalTrapStatus(
       activity: sample.activity,
       cycleCounts: sample.cycleCounts,
       stype: sample.stype,
-      inTripletHiCc: 0,
-      loCcScore: 0,
       temperature: sample.temperature,
+      totalLossesKg,
     });
 
     // update this array, maybe it will be able to use it for current state evaluation
@@ -465,11 +463,11 @@ function evalTrapStatus(
     // filling the sample information
     sample.status = status;
     sample.totalLossesKg = totalLossesKg;
-    sample.totalLossesKwh = totalLossesKwh;
-    sample.totalLossesCo2 = totalLossesCo2;
-    sample.meanIntLeak = meanIntLeak;
-    sample.extNoiseFactor = extNoiseFactor;
-    sample.floodFactor = floodFactor;
+    sample.totalLossesKwh = Math.round(totalLossesKwh*10)/10;
+    sample.totalLossesCo2 = Math.round(totalLossesCo2*100)/100;
+    sample.meanIntLeak = Math.round(meanIntLeak*10)/10;
+    sample.extNoiseFactor = Math.round(extNoiseFactor*1000)/10;
+    sample.floodFactor = Math.round(floodFactor*100);
 
     arrSamplesForStoring.push(sample);
 
@@ -496,7 +494,7 @@ function evalTrapStatus(
 }
 
 // A function-helper
-function findNumOfSamples(arr: RetainedSample[], stype: SampleTypes) {
+function findNumOfSamples(arr: RetainedActiveSample[], stype: SampleTypes) {
   return arr.filter((curr) => curr.stype === stype).length;
 }
 

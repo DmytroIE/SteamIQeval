@@ -1,32 +1,50 @@
-let lastProcTs: Timestamp = 0;
-
 const prepTrapDataForStoring = (
   arrSamples: SampleForStoringInDb[],
-  trapId: string
+  trapId: string,
+  arrLastSamplesPrev: RetainedLastSample[]
 ): { forCsv: string; forIot: string } => {
   let forCsv: string = "";
   let forIot: string = "";
-  let dateTime: string | Date;
-  let ts: Timestamp;
+  let dateTime: Date;
+  let dateTimeStr: string;
+  let tsRounded: Timestamp;
   let proxyObj: ProxyObj;
   let proxyArr: ProxyObj[] = [];
+  let roundedTsOfPrevSample: Timestamp = new Date(
+    arrLastSamplesPrev[arrLastSamplesPrev.length - 1].timestamp
+  ).setUTCMinutes(0, 0, 0);
+  let totalLossesKgOfPrevSample =
+    arrLastSamplesPrev[arrLastSamplesPrev.length - 1].totalLossesKg;
+  let lossesKg: number;
 
   for (let sample of arrSamples) {
     dateTime = new Date(sample.ts);
-    ts = dateTime.setUTCMinutes(0, 0, 0);
-    if (lastProcTs === ts) {
+    // round the timestamp to one hour
+    tsRounded = dateTime.setUTCMinutes(0, 0, 0);
+    // this part is made because the interval between consequitive samples that a SteamIQ
+    // device sends is quite often 1-2 seconds smaller than 1 hour.
+    // So, sometimes it happens that two adjancent samples have the same hour,
+    // like 14:00:01 and  14:59:59. In this case we just include the first sample and
+    // exclude the second one. But if it has losses then we add them to the nearest next sample
+    if (roundedTsOfPrevSample === tsRounded) {
       continue;
+    } else {
+      lossesKg = sample.totalLossesKg - totalLossesKgOfPrevSample;
+      totalLossesKgOfPrevSample = sample.totalLossesKg;
     }
-    lastProcTs = ts;
+
     // preparing for the STRATA format
-    dateTime =
-      String(dateTime.getUTCFullYear()) +'-'+
-      String(dateTime.getUTCMonth() + 1) +'-'+
-      String(dateTime.getUTCDate()) + ' '+
-      String(dateTime.getUTCHours())+
+    dateTimeStr =
+      String(dateTime.getUTCFullYear()) +
+      "-" +
+      String(dateTime.getUTCMonth() + 1) +
+      "-" +
+      String(dateTime.getUTCDate()) +
+      " " +
+      String(dateTime.getUTCHours()) +
       ":00:00";
     forCsv +=
-      dateTime +
+      dateTimeStr +
       ";" +
       sample.activity +
       ";" +
@@ -38,32 +56,35 @@ const prepTrapDataForStoring = (
       ";" +
       sample.status +
       ";" +
-      Math.round(sample.totalLossesKg*10)/10 +
+      sample.totalLossesKg +
       ";" +
-      Math.round(sample.totalLossesKwh*10)/10 +
+      sample.totalLossesKwh +
       ";" +
-      Math.round(sample.totalLossesCo2*100)/100 +
+      sample.totalLossesCo2 +
       ";" +
-      Math.round(sample.meanIntLeak*10)/10 +
+      sample.meanIntLeak * 1 +
       ";" +
-      Math.round(sample.extNoiseFactor*1000)/10 + // percent
+      lossesKg +
       ";" +
-      Math.round(sample.floodFactor*100) + // percent
+      sample.extNoiseFactor +
+      ";" +
+      sample.floodFactor +
       ";" +
       sample.trapIndex +
       ";" +
       sample.stype +
       ";\n";
     // prepaping ts for IoT hub in seconds
-    ts = ts / 1000;
-    proxyObj = { time: ts };
+    tsRounded = tsRounded / 1000; // no necessity to round after division as it is already rounded
+    proxyObj = { time: tsRounded };
     proxyObj[`${trapId}act`] = sample.activity;
     proxyObj[`${trapId}cc`] = sample.cycleCounts;
     proxyObj[`${trapId}temp`] = sample.temperature;
     proxyObj[`${trapId}bat`] = sample.battery;
     proxyObj[`${trapId}st`] = sample.status;
-    proxyObj[`${trapId}totkg`] = Math.round(sample.totalLossesKg*10)/10;
-    proxyObj[`${trapId}enf`] = Math.round(sample.extNoiseFactor*1000)/10;
+    //proxyObj[`${trapId}totkg`] = Math.round(sample.totalLossesKg*10)/10;
+    proxyObj[`${trapId}losskg`] = lossesKg;
+    proxyObj[`${trapId}enf`] = sample.extNoiseFactor;
     proxyArr.push(proxyObj);
   }
   forIot = JSON.stringify(proxyArr, null, "\t");

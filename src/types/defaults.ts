@@ -18,7 +18,16 @@ const defaultRetainedData: RetainedData = {
   hoursOfLeaking: 0,
   prevTrapIndex: null,
   arrActSamples: [],
-  arrLastSamples: [],
+  arrLastSamples: [ // is needed only for lossesKg calculation
+    {
+      timestamp: 0,
+      activity: 0,
+      cycleCounts: 0,
+      stype: SampleTypes.Cold,
+      temperature: null,
+      totalLossesKg: 0,
+    },
+  ],
 };
 
 export { defaultRetainedData };

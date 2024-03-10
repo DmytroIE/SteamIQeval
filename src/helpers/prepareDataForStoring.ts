@@ -29,7 +29,12 @@ const prepTrapDataForStoring = (
     if (roundedTsOfPrevSample === tsRounded) {
       continue;
     } else {
-      lossesKg = sample.totalLossesKg - totalLossesKgOfPrevSample;
+      if (sample.totalLossesKg < totalLossesKgOfPrevSample) { // it means that there was a reset
+        lossesKg = sample.totalLossesKg;
+      }
+      else {
+        lossesKg = sample.totalLossesKg - totalLossesKgOfPrevSample;
+      }
       totalLossesKgOfPrevSample = sample.totalLossesKg;
     }
 

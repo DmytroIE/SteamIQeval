@@ -14,8 +14,11 @@ import { defaultRetainedData } from "./types/defaults";
 import { createIotHubMqttClient } from "./services/azureDataEmitServices";
 
 const IOT_HUB_SEND_PAUSE_MS = 15000;
-const BTW_TRAP_PROC_PAUSE_MS = 5000;
+const BTW_TRAP_PROC_PAUSE_MS = 2000;
 const CHUNK_SIZE = 100;
+const INFO_FILE_STR = "/info.json";
+const RET_DATA_FILE_STR = "/retData.json";
+const PROC_DATA_FILE_STR = "/procData.csv";
 
 const main = async (): Promise<void> => {
   let client: Client | undefined = undefined;
@@ -49,13 +52,20 @@ const main = async (): Promise<void> => {
     for ([plantName, plant] of Object.entries(confObj)) {
       logger.info(`Processing data for plant ${plantName}`);
       for ([trapId, trap] of Object.entries(plant)) {
+        if (!trap.evaluate) {
+          logger.info(
+            `Trap ${trapId} is excluded from the evaluation of the status`
+          );
+          continue;
+        }
         logger.info(`Processing data for trap ${trapId}`);
         try {
           // check the conf
           if (
-            !trap.pathToInfoFile ||
-            !trap.pathToRetDataFile ||
-            !trap.pathToProcDataFile ||
+            //!trap.pathToInfoFile ||
+            //!trap.pathToRetDataFile ||
+            //!trap.pathToProcDataFile ||
+            !trap.pathToFolder ||
             !trap.iotHubConStrRef
           ) {
             throw new Error(`No config data for Trap ${trapId}`);
@@ -83,12 +93,15 @@ const main = async (): Promise<void> => {
             }
           }
 
-          // load trap info list
-          const arrTrapInfoString = await readFile(trap.pathToInfoFile, {
-            encoding: "utf8",
-          });
+          // load the trap info list
+          const arrTrapInfoString = await readFile(
+            trap.pathToFolder + INFO_FILE_STR,
+            {
+              encoding: "utf8",
+            }
+          );
           if (arrTrapInfoString.length < 2) {
-            throw Error(`No info for Trap ${trap.trapId}`);
+            throw Error(`No info for Trap ${trapId} found`);
           }
           const arrTrapInfo: TrapInfo[] = JSON.parse(arrTrapInfoString);
           for (let item of arrTrapInfo) {
@@ -98,14 +111,17 @@ const main = async (): Promise<void> => {
             }
           }
           if (!checkArrayIsNotEmpty(arrTrapInfo)) {
-            throw new Error(`The info for Trap ${trap.trapId} is corrupted`);
+            throw new Error(`The info for Trap ${trapId} is corrupted`);
           }
           arrTrapInfo.sort((a, b) => a.validFrom - b.validFrom); // sort the array just in case
 
           // load retained data object
-          const retainedDataString = await readFile(trap.pathToRetDataFile, {
-            encoding: "utf8",
-          });
+          const retainedDataString = await readFile(
+            trap.pathToFolder + RET_DATA_FILE_STR,
+            {
+              encoding: "utf8",
+            }
+          );
           let retainedData: RetainedData;
           let newRetainedData: RetainedData;
           let arrSamplesForStoring: SampleForStoringInDb[];
@@ -116,7 +132,7 @@ const main = async (): Promise<void> => {
             retainedData = structuredClone(defaultRetainedData);
             console.log(`Init with default data`);
 
-            startTs = arrTrapInfo[0].validFrom;
+            startTs = arrTrapInfo[0].validFrom; // at least one record in this array must exist
           } else {
             retainedData = JSON.parse(retainedDataString);
             console.log(`Data is taken from the file`);
@@ -136,6 +152,7 @@ const main = async (): Promise<void> => {
 
           let endTs: Timestamp;
           let siqDevId: string;
+          let siqDevName: string;
           let numberOfProcessedChunks = 0;
           let i = 0;
 
@@ -143,6 +160,7 @@ const main = async (): Promise<void> => {
             if (startTs >= arrTrapInfo[i].validFrom) {
               endTs = Date.now();
               siqDevId = arrTrapInfo[i].siqDevId;
+              siqDevName = arrTrapInfo[i].siqDevName;
               let j = i + 1;
               while (j < arrTrapInfo.length) {
                 if (arrTrapInfo[i].siqDevId === arrTrapInfo[j].siqDevId) {
@@ -159,7 +177,8 @@ const main = async (): Promise<void> => {
                 siqDevId,
                 startTs,
                 endTs,
-                CHUNK_SIZE
+                CHUNK_SIZE,
+                siqDevName
               );
               //csvFileChunkReader("../POL-16.csv"); // test with the file instead of real api
 
@@ -179,10 +198,14 @@ const main = async (): Promise<void> => {
                 retainedData = newRetainedData;
                 numberOfProcessedChunks++;
                 if (storeToFile) {
-                  await writeFile(trap.pathToProcDataFile, forCsv, {
-                    encoding: "utf8",
-                    flag: "a",
-                  });
+                  await writeFile(
+                    trap.pathToFolder + PROC_DATA_FILE_STR,
+                    forCsv,
+                    {
+                      encoding: "utf8",
+                      flag: "a",
+                    }
+                  );
                 }
 
                 if (sendToIot) {
@@ -196,12 +219,16 @@ const main = async (): Promise<void> => {
                   console.log(
                     `Sending the message ${numberOfProcessedChunks} to the hub`
                   );
-                  if (client) { // this "if" for TS only
+                  if (client) {
+                    // this "if" for TS only
                     await client.sendEvent(message);
                   }
 
-                  await new Promise((resolve, reject) => // pause in order not to overload IoT hub
-                    setTimeout(resolve, IOT_HUB_SEND_PAUSE_MS)
+                  await new Promise(
+                    (
+                      resolve,
+                      reject // pause in order not to overload IoT hub
+                    ) => setTimeout(resolve, IOT_HUB_SEND_PAUSE_MS)
                   );
                 }
               }
@@ -212,7 +239,7 @@ const main = async (): Promise<void> => {
           }
           if (numberOfProcessedChunks > 0) {
             await writeFile(
-              trap.pathToRetDataFile,
+              trap.pathToFolder+RET_DATA_FILE_STR,
               JSON.stringify(retainedData, null, "\t"),
               { encoding: "utf8", flag: "w" }
             );
@@ -220,9 +247,12 @@ const main = async (): Promise<void> => {
           } else {
             logger.info(`No data for Trap ${trapId} was processed`);
           }
-          await new Promise((resolve, reject) => // pause in order not to overload IoT hub
-          setTimeout(resolve, BTW_TRAP_PROC_PAUSE_MS)
-        );
+          await new Promise(
+            (
+              resolve,
+              reject // pause in order not to overload IoT hub
+            ) => setTimeout(resolve, BTW_TRAP_PROC_PAUSE_MS)
+          );
         } catch (err) {
           logger.error(
             `Error while processing Trap ${trapId}: ${err as string}`

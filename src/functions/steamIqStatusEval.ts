@@ -139,7 +139,7 @@ function evalTrapStatus(
         hoursOfLeaking,
       } = defaultRetainedData);
       arrActSamples = [];
-      arrLastSamples = [];
+      arrLastSamples = structuredClone(defaultRetainedData.arrLastSamples);
 
       prevTrapIndex = trapIndex;
       status = Status.Undefined;

@@ -8,7 +8,8 @@ async function* steamIqChunkDataFetcher(
   siqDevId: string,
   startTs: number,
   endTs: number,
-  chunkSize: number = 100
+  chunkSize: number = 100,
+  siqDevName: string = ''
 ) {
   try {
     if (startTs > endTs) {
@@ -73,7 +74,6 @@ async function* steamIqChunkDataFetcher(
       itemData.cycleCounts.length &&
       itemData.leak.length === itemData.cycleCounts.length
     ) {
-
       //---------------------------------------------------------
       let dataFrame: NewSample[] = [];
       for (let i = 0; i < itemData.leak.length; i++) {
@@ -116,7 +116,14 @@ async function* steamIqChunkDataFetcher(
       } else return;
     } else {
       if (JSON.stringify(itemData) === "{}") {
-        logger.info(`No data for ${siqDevId} from ${startTs} till ${endTs}`);
+        const name = !siqDevName ? siqDevId: siqDevName;
+        logger.info(
+          `No data for ${name} from ${new Date(
+            startTs
+          ).toISOString()} till ${new Date(
+            endTs
+            ).toISOString()}`
+        );
         return;
       }
       throw new Error("The data received from the SteamIQ API is corrupted");

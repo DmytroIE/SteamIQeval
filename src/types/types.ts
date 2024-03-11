@@ -62,14 +62,15 @@ type RetainedLastSample = {
 // When the trap has been fixed or replaced with a new one, an new entity of this type needs to be added in arrTrapInfo variable
 type TrapInfo = {
   validFrom: Timestamp;
-  trapName: string; //doesn't reset the statistic collected so far
-  orifDiam: number; // resets the statistic collected so far
-  pressure: number; // resets the statistic collected so far
-  steamEnthalpy: number; //doesn't reset the statistic collected so far
-  efficiency: number; //doesn't reset the statistic collected so far
-  co2factor: number; //doesn't reset the statistic collected so far
-  isModulating: boolean; // resets the statistic collected so far
-  siqDevId: string; // the ID of the device connected to this steam trap. If it is changed, no new trapInfo is created (therefore, doesn't reset the statistic collected so far)
+  trapName: string; // DN, model of the trap
+  orifDiam: number;
+  pressure: number;
+  steamEnthalpy: number;
+  efficiency: number;
+  co2factor: number;
+  isModulating: boolean;
+  siqDevId: string; // the ID of the device connected to this steam trap
+  siqDevName: string, // the name of the device connected to this steam trap
   reset: boolean;
 };
 

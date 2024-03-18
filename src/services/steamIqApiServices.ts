@@ -86,7 +86,7 @@ async function* steamIqChunkDataFetcher(
         };
         dataFrame.push(sample);
       }
-      if (itemData.temperature.length > 0) {
+      if (itemData.temperature && itemData.temperature.length > 0) {
         let lastTemp = itemData.temperature.at(-1).value;
         let lastBat = Math.ceil((itemData.battery.at(-1).value / 255) * 100);
         for (let i = dataFrame.length - 1; i >= 0; i--) {

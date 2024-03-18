@@ -14,7 +14,7 @@ import { defaultRetainedData } from "./types/defaults";
 import { createIotHubMqttClient } from "./services/azureDataEmitServices";
 
 const IOT_HUB_SEND_PAUSE_MS = 15000;
-const BTW_TRAP_PROC_PAUSE_MS = 2000;
+const BTW_TRAP_PROC_PAUSE_MS = 3000;
 const CHUNK_SIZE = 100;
 const INFO_FILE_STR = "/info.json";
 const RET_DATA_FILE_STR = "/retData.json";
@@ -157,7 +157,7 @@ const main = async (): Promise<void> => {
           let i = 0;
 
           while (i < arrTrapInfo.length) {
-            if (startTs >= arrTrapInfo[i].validFrom) {
+            if (startTs >= arrTrapInfo[i].validFrom) { // this check is needed only for the first scan of the cycle
               endTs = Date.now();
               siqDevId = arrTrapInfo[i].siqDevId;
               siqDevName = arrTrapInfo[i].siqDevName;
@@ -173,73 +173,79 @@ const main = async (): Promise<void> => {
                 }
               }
 
-              const reader = steamIqChunkDataFetcher(
-                siqDevId,
-                startTs,
-                endTs,
-                CHUNK_SIZE,
-                siqDevName
-              );
-              //csvFileChunkReader("../POL-16.csv"); // test with the file instead of real api
-
-              for await (const arrNewSamples of reader) {
-                ({ arrSamplesForStoring, newRetainedData } = evalTrapStatus(
-                  arrNewSamples,
-                  arrTrapInfo,
-                  retainedData
-                ));
-
-                // prepare data for sharing
-                const { forCsv, forIot } = prepTrapDataForStoring(
-                  arrSamplesForStoring,
-                  trapId,
-                  retainedData.arrLastSamples
+              if (siqDevId) {
+                const reader = steamIqChunkDataFetcher(
+                  siqDevId,
+                  startTs,
+                  endTs,
+                  CHUNK_SIZE,
+                  siqDevName
                 );
-                retainedData = newRetainedData;
-                numberOfProcessedChunks++;
-                if (storeToFile) {
-                  await writeFile(
-                    trap.pathToFolder + PROC_DATA_FILE_STR,
-                    forCsv,
-                    {
-                      encoding: "utf8",
-                      flag: "a",
-                    }
-                  );
-                }
+                //csvFileChunkReader("../POL-16.csv"); // test with the file instead of real api
 
-                if (sendToIot) {
-                  // remove it later
-                  console.log(
-                    `\n----------------------------\nEmulate sending Message ${numberOfProcessedChunks} to the hub`
-                  );
-                  console.log(forIot.slice(0, 180) + "...");
+                for await (const arrNewSamples of reader) {
+                  ({ arrSamplesForStoring, newRetainedData } = evalTrapStatus(
+                    arrNewSamples,
+                    arrTrapInfo,
+                    retainedData
+                  ));
 
-                  const message = new Message(forIot);
-                  console.log(
-                    `Sending the message ${numberOfProcessedChunks} to the hub`
+                  // prepare data for sharing
+                  const { forCsv, forIot } = prepTrapDataForStoring(
+                    arrSamplesForStoring,
+                    trapId,
+                    retainedData.arrLastSamples
                   );
-                  if (client) {
-                    // this "if" for TS only
-                    await client.sendEvent(message);
+                  retainedData = newRetainedData;
+                  numberOfProcessedChunks++;
+                  if (storeToFile) {
+                    await writeFile(
+                      trap.pathToFolder + PROC_DATA_FILE_STR,
+                      forCsv,
+                      {
+                        encoding: "utf8",
+                        flag: "a",
+                      }
+                    );
                   }
 
-                  await new Promise(
-                    (
-                      resolve,
-                      reject // pause in order not to overload IoT hub
-                    ) => setTimeout(resolve, IOT_HUB_SEND_PAUSE_MS)
-                  );
+                  if (sendToIot) {
+                    // remove it later
+                    console.log(
+                      `\n----------------------------\nSending Message ${numberOfProcessedChunks} to the hub`
+                    );
+                    console.log(forIot.slice(0, 180) + "...");
+
+                    const message = new Message(forIot);
+                    console.log(
+                      `Sending the message ${numberOfProcessedChunks} to the hub`
+                    );
+                    if (client) {
+                      // this "if" for TS only
+                      await client.sendEvent(message);
+                    }
+
+                    await new Promise(
+                      (
+                        resolve,
+                        reject // pause in order not to overload IoT hub
+                      ) => setTimeout(resolve, IOT_HUB_SEND_PAUSE_MS)
+                    );
+                  }
                 }
+              } else {
+                logger.info("No SteamIQ device ID");
               }
-              i += j;
+              startTs = endTs + 1; // prepare startTs for the next cycle, it will be equal arrTrapInfo[j].validFrom. 
+              //Or it can be rqual to Date.now() + 1, which doesn't matter as this will be the last scan in the cycle.
+              i = j;
             } else {
               i += 1;
             }
           }
           if (numberOfProcessedChunks > 0) {
             await writeFile(
-              trap.pathToFolder+RET_DATA_FILE_STR,
+              trap.pathToFolder + RET_DATA_FILE_STR,
               JSON.stringify(retainedData, null, "\t"),
               { encoding: "utf8", flag: "w" }
             );

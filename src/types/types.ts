@@ -62,6 +62,9 @@ type RetainedLastSample = {
 // When the trap has been fixed or replaced with a new one, an new entity of this type needs to be added in arrTrapInfo variable
 type TrapInfo = {
   validFrom: Timestamp;
+  location: string,
+  application: string,
+  numHoursCold: number,
   trapName: string; // DN, model of the trap
   orifDiam: number;
   pressure: number;
@@ -76,7 +79,6 @@ type TrapInfo = {
 
 // The object of this shape is retained between function evaluations (can call it "state")
 type RetainedData = {
-  floodFactor: number;
   prevStatus: Status;
   totalLossesKg: number;
   totalLossesKwh: number;
@@ -101,7 +103,6 @@ type SampleForStoringInDb = {
   totalLossesCo2: number;
   meanIntLeak: number;
   extNoiseFactor: number;
-  floodFactor: number;
   temperature: number|null;
   battery: number|null;
 };

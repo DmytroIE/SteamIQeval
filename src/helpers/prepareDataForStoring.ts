@@ -73,8 +73,6 @@ const prepTrapDataForStoring = (
       ";" +
       sample.extNoiseFactor +
       ";" +
-      sample.floodFactor +
-      ";" +
       sample.trapIndex +
       ";" +
       sample.stype +

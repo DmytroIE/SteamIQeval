@@ -32,7 +32,6 @@ function evalTrapStatus(
   let sample: SampleForStoringInDb;
 
   let {
-    floodFactor,
     prevStatus,
     totalLossesKg,
     totalLossesKwh,
@@ -41,8 +40,10 @@ function evalTrapStatus(
     prevTrapIndex,
   } = retainedData;
 
-  let arrActSamples: RetainedActiveSample[] = retainedData.arrActSamples.slice();
-  let arrLastSamples: RetainedLastSample[] = retainedData.arrLastSamples.slice();
+  let arrActSamples: RetainedActiveSample[] =
+    retainedData.arrActSamples.slice();
+  let arrLastSamples: RetainedLastSample[] =
+    retainedData.arrLastSamples.slice();
 
   let numLoMid: number;
   let numHiExtraHi: number;
@@ -89,7 +90,6 @@ function evalTrapStatus(
       totalLossesCo2: 0, // this value will be assigned later
       meanIntLeak: 0, // this value will be assigned later
       extNoiseFactor: 0, // this value will be assigned later
-      floodFactor: 0, // this value will be assigned later
       temperature: item.temperature,
       battery: item.battery,
     };
@@ -128,10 +128,8 @@ function evalTrapStatus(
       : THRESHOLD_OK_SAMPLES_CONST;
 
     if (prevTrapIndex !== trapIndex && arrTrapInfo[trapIndex].reset) {
-      // !!!!!!!!!!!!!!!!!!!!! check later !!!!!!!!!!!!!!!!!!!!!!!!!!
       // reset the statistics
       ({
-        floodFactor,
         prevStatus,
         totalLossesKg,
         totalLossesKwh,
@@ -150,29 +148,16 @@ function evalTrapStatus(
     // assigning sample types depending of the combination of leak and cycleCounts
     if (sample.activity === 0 && sample.cycleCounts === 0) {
       sample.stype = SampleTypes.Cold;
-      if (floodFactor < 0.59999) {
-        floodFactor = Math.min(1, floodFactor + 0.15);
-      } else if (floodFactor > 0.60001) {
-        floodFactor = Math.max(0.6, floodFactor - 0.05);
-      }
     } else if (sample.activity === 0 && sample.cycleCounts > 0) {
       sample.stype = SampleTypes.Flooded;
-      floodFactor = Math.min(1, floodFactor + 0.3);
     } else if (sample.activity <= THRESHOLD_MID_ACTIVITY) {
       sample.stype = SampleTypes.LoActive;
-      if (floodFactor > 0.5) {
-        sample.stype = SampleTypes.Flooded;
-      }
-      floodFactor = Math.max(0, floodFactor - 0.15);
     } else if (sample.activity <= THRESHOLD_HI_ACTIVITY) {
       sample.stype = SampleTypes.MidActive;
-      floodFactor = 0;
     } else if (sample.activity <= THRESHOLD_EXTRA_HI_ACTIVITY) {
       sample.stype = SampleTypes.HiActive;
-      floodFactor = 0;
     } else {
       sample.stype = SampleTypes.ExtraHiActive;
-      floodFactor = 0;
     }
 
     if (sample.stype > SampleTypes.Flooded) {
@@ -210,7 +195,7 @@ function evalTrapStatus(
               THRESHOLD_CYCLE_COUNTS_EXT_NOISE &&
             arrActSamples[k + m].activity > THRESHOLD_MID_ACTIVITY &&
             arrActSamples[k + m].timestamp - tsPrev <
-            NUM_HOURS_BTW_SAMPLES_OBS * 3600000 /*no dropout is possible*/
+              NUM_HOURS_BTW_SAMPLES_OBS * 3600000
           ) {
             numHiCcSamplesInRow++;
           }
@@ -219,7 +204,7 @@ function evalTrapStatus(
         }
 
         if (numHiCcSamplesInRow >= 3) {
-          tsPrev = arrActSamples[k].timestamp; // here it is the internal Excel format
+          tsPrev = arrActSamples[k].timestamp;
           for (let u = 0; u < 5; u++) {
             if (
               arrActSamples[k + u].cycleCounts >
@@ -441,7 +426,6 @@ function evalTrapStatus(
     }
     meanIntLeak = hoursOfLeaking === 0 ? 0.0 : totalLossesKg / hoursOfLeaking;
 
-
     arrLastSamples.push({
       timestamp: sample.ts,
       activity: sample.activity,
@@ -459,15 +443,13 @@ function evalTrapStatus(
       arrLastSamples.length
     );
 
-
     // filling the sample information
     sample.status = status;
     sample.totalLossesKg = totalLossesKg;
-    sample.totalLossesKwh = Math.round(totalLossesKwh*10)/10;
-    sample.totalLossesCo2 = Math.round(totalLossesCo2*100)/100;
-    sample.meanIntLeak = Math.round(meanIntLeak*10)/10;
-    sample.extNoiseFactor = Math.round(extNoiseFactor*1000)/10;
-    sample.floodFactor = Math.round(floodFactor*100);
+    sample.totalLossesKwh = Math.round(totalLossesKwh * 10) / 10;
+    sample.totalLossesCo2 = Math.round(totalLossesCo2 * 100) / 100;
+    sample.meanIntLeak = Math.round(meanIntLeak * 10) / 10;
+    sample.extNoiseFactor = Math.round(extNoiseFactor * 1000) / 10;
 
     arrSamplesForStoring.push(sample);
 
@@ -476,7 +458,6 @@ function evalTrapStatus(
 
   // preparing the data with intermediate calculations to be retained and used in next calculations
   const newRetainedData: RetainedData = {
-    floodFactor,
     prevStatus,
     totalLossesKg,
     totalLossesKwh,

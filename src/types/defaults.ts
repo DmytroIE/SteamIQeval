@@ -3,14 +3,6 @@
 // But it is also used as a helper for initializing some values in the eval function
 // That is why it is left here
 const defaultRetainedData: RetainedData = {
-  //trapId: '',
-  //trapName: '',
-  //lastSampleTs: null,
-  //nextQueryTime: null,
-  //extNoiseFactor: 0,
-  //lowCcImpactFactor: 0,
-  //numExtNoiseSamplesInRow: 0,
-  floodFactor: 0,
   prevStatus: Status.Undefined,
   totalLossesKg: 0,
   totalLossesKwh: 0,

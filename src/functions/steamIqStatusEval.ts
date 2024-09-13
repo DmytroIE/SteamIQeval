@@ -359,9 +359,9 @@ function evalTrapStatus(
     // evaluating status
 
     if (
-      numLoMid + numHiExtraHiRecalc > WINDOW_LENGTH_FOR_GOOD_STATUS &&
+      ((numLoMid + numHiExtraHiRecalc > WINDOW_LENGTH_FOR_GOOD_STATUS &&
       numLoMid > WINDOW_LENGTH_FOR_GOOD_STATUS * 0.5 &&
-      percLoMid > thresholdOkSamples &&
+      percLoMid > thresholdOkSamples) || (numLoMid > 3 && numHiExtraHi === 0)) &&
       prevStatus < Status.Warning
     ) {
       status = Status.Good;

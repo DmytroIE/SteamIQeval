@@ -13,17 +13,19 @@ import { prepTrapDataForStoring } from "./helpers/prepareDataForStoring";
 import { defaultRetainedData } from "./types/defaults";
 import { createIotHubMqttClient } from "./services/azureDataEmitServices";
 
-const IOT_HUB_SEND_PAUSE_MS = 15000;
+const IOT_HUB_SEND_PAUSE_MS = 10000;
 const BTW_TRAP_PROC_PAUSE_MS = 3000;
 const CHUNK_SIZE = 100;
 const INFO_FILE_STR = "/info.json";
 const RET_DATA_FILE_STR = "/retData.json";
 const PROC_DATA_FILE_STR = "/procData.csv";
+const TIME_DIFF_PROBLEM_DEV  = 3 * 24 * 3600 * 1000; // three days of inactivity mean that the device is problematic
 
 const main = async (): Promise<void> => {
   let client: Client | undefined = undefined;
+  const arrProblemTraps: string[] = [];
   try {
-    logger.info("Start-----------------------------------------");
+    logger.info("----------------------Start-----------------------");
 
     let sendToIot = true;
     let storeToFile = true;
@@ -130,12 +132,12 @@ const main = async (): Promise<void> => {
           if (retainedDataString.length < 2) {
             // if the file doesn't exist or empty
             retainedData = structuredClone(defaultRetainedData);
-            console.log(`Init with default data`);
+            console.log(`Init with default retained data`);
 
             startTs = arrTrapInfo[0].validFrom; // at least one record in this array must exist
           } else {
             retainedData = JSON.parse(retainedDataString);
-            console.log(`Data is taken from the file`);
+            console.log(`Retained data is taken from the file`);
 
             if (
               !retainedData ||
@@ -151,8 +153,8 @@ const main = async (): Promise<void> => {
           }
 
           let endTs: Timestamp;
-          let siqDevId: string;
-          let siqDevName: string;
+          let siqDevId: string = '';
+          let siqDevName: string = '';
           let numberOfProcessedChunks = 0;
           let i = 0;
 
@@ -218,7 +220,7 @@ const main = async (): Promise<void> => {
 
                     const message = new Message(forIot);
                     console.log(
-                      `Sending the message ${numberOfProcessedChunks} to the hub`
+                      `Sending message ${numberOfProcessedChunks} to the hub`
                     );
                     if (client) {
                       // this "if" for TS only
@@ -234,7 +236,7 @@ const main = async (): Promise<void> => {
                   }
                 }
               } else {
-                logger.info("No SteamIQ device ID");
+                logger.info(`No SteamIQ device ID. The device must have been removed from Trap "${trapId}"`);
               }
               startTs = endTs + 1; // prepare startTs for the next cycle, it will be equal arrTrapInfo[j].validFrom. 
               //Or it can be rqual to Date.now() + 1, which doesn't matter as this will be the last scan in the cycle.
@@ -252,6 +254,17 @@ const main = async (): Promise<void> => {
             logger.info(`Data for Trap ${trapId} was succesfuly processed`);
           } else {
             logger.info(`No data for Trap ${trapId} was processed`);
+            if (
+              retainedData &&
+              retainedData.arrLastSamples &&
+              checkArrayIsNotEmpty(retainedData.arrLastSamples)
+            ) {
+              const lastTs = retainedData.arrLastSamples[retainedData.arrLastSamples.length - 1].timestamp;
+              if (siqDevId && siqDevName && Date.now()- lastTs > TIME_DIFF_PROBLEM_DEV) {
+                arrProblemTraps.push(`Device ${siqDevName} hasn't been seen since ${(new Date(lastTs)).toISOString()},
+                \nplant ${plantName}, Trap ${trapId}`)
+              }
+            }
           }
           await new Promise(
             (
@@ -275,6 +288,12 @@ const main = async (): Promise<void> => {
       client.close(() => {
         logger.info("IoT Hub Client disconnected");
       });
+    }
+    if (arrProblemTraps.length) {
+      console.log('*******************************\nProblematic traps\n*******************************');
+      for (let info of arrProblemTraps) {
+        console.log(info)
+      }
     }
   }
 };

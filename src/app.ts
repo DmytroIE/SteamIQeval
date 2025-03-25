@@ -19,7 +19,9 @@ const CHUNK_SIZE = 100;
 const INFO_FILE_STR = "/info.json";
 const RET_DATA_FILE_STR = "/retData.json";
 const PROC_DATA_FILE_STR = "/procData.csv";
-const TIME_DIFF_PROBLEM_DEV  = 3 * 24 * 3600 * 1000; // three days of inactivity mean that the device is problematic
+const TIME_DIFF_PROBLEM_DEV = 3 * 24 * 3600 * 1000; // three days of inactivity mean that the device is problematic
+const userDefStr = 'SIQ_API_USERNAME_';
+const passwDefStr = 'SIQ_API_PASSWORD_';
 
 const main = async (): Promise<void> => {
   let client: Client | undefined = undefined;
@@ -44,239 +46,261 @@ const main = async (): Promise<void> => {
     }
     const confObj = JSON.parse(confObjString);
 
+    let domain: any;
+    let domainCode: string;
     let plant: any;
     let plantName: string;
     let trapId: string;
     let trap: any;
     let connStr: string = "";
     let connStrPrev: string = "";
+    let username: string | undefined;
+    let password: string | undefined;
+    let token: string | undefined;
 
-    for ([plantName, plant] of Object.entries(confObj)) {
-      logger.info(`Processing data for plant ${plantName}`);
-      for ([trapId, trap] of Object.entries(plant)) {
-        if (!trap.evaluate) {
-          logger.info(
-            `Trap ${trapId} is excluded from the evaluation of the status`
-          );
-          continue;
-        }
-        logger.info(`Processing data for trap ${trapId}`);
-        try {
-          // check the conf
-          if (
-            //!trap.pathToInfoFile ||
-            //!trap.pathToRetDataFile ||
-            //!trap.pathToProcDataFile ||
-            !trap.pathToFolder ||
-            !trap.iotHubConStrRef
-          ) {
-            throw new Error(`No config data for Trap ${trapId}`);
-          }
+    for ([domainCode, domain] of Object.entries(confObj)) {
+      if (domainCode === 'OTHER') continue;
+      username = process.env[userDefStr + domainCode];
+      password = process.env[passwDefStr + domainCode];
+      if (!username || !password) {
+        throw new Error(`No username or password is found for domain ${domainCode}`);
+      }
+      token = undefined;
 
-          // create an IoTHub client for this trap
-          if (sendToIot) {
-            connStr = process.env[trap.iotHubConStrRef] || "";
-            if (connStr === "") {
-              throw new Error(`No connection string for Trap ${trapId}`);
-            }
-            if (connStr === connStrPrev && client) {
-              connStrPrev = connStr; // we can use the client from the previous iteration
-            } else {
-              if (client) {
-                client.close(() => {
-                  logger.info("IoT Hub client disconnected");
-                });
-              }
-              logger.info("Create a new IoT Hub client");
-              client = createIotHubMqttClient(connStr);
-              logger.info("Trying to connect IoT Hub client to the hub");
-              await client.open();
-              connStrPrev = connStr; //if we managed to get to this point without an exception then the client got connected
-            }
-          }
-
-          // load the trap info list
-          const arrTrapInfoString = await readFile(
-            trap.pathToFolder + INFO_FILE_STR,
-            {
-              encoding: "utf8",
-            }
-          );
-          if (arrTrapInfoString.length < 2) {
-            throw Error(`No info for Trap ${trapId} found`);
-          }
-          const arrTrapInfo: TrapInfo[] = JSON.parse(arrTrapInfoString);
-          for (let item of arrTrapInfo) {
-            // convert ISO datetime string to a timestamp if neccessary
-            if (typeof item.validFrom === "string") {
-              item.validFrom = Date.parse(item.validFrom);
-            }
-          }
-          if (!checkArrayIsNotEmpty(arrTrapInfo)) {
-            throw new Error(`The info for Trap ${trapId} is corrupted`);
-          }
-          arrTrapInfo.sort((a, b) => a.validFrom - b.validFrom); // sort the array just in case
-
-          // load retained data object
-          const retainedDataString = await readFile(
-            trap.pathToFolder + RET_DATA_FILE_STR,
-            {
-              encoding: "utf8",
-            }
-          );
-          let retainedData: RetainedData;
-          let newRetainedData: RetainedData;
-          let arrSamplesForStoring: SampleForStoringInDb[];
-          // preparing initial start timestamp
-          let startTs: Timestamp;
-          if (retainedDataString.length < 2) {
-            // if the file doesn't exist or empty
-            retainedData = structuredClone(defaultRetainedData);
-            console.log(`Init with default retained data`);
-
-            startTs = arrTrapInfo[0].validFrom; // at least one record in this array must exist
-          } else {
-            retainedData = JSON.parse(retainedDataString);
-            console.log(`Retained data is taken from the file`);
-
-            if (
-              !retainedData ||
-              !retainedData.arrLastSamples ||
-              !checkArrayIsNotEmpty(retainedData.arrLastSamples)
-            ) {
-              throw `Retained data for trap ${trapId} is corrupted`;
-            }
-            startTs =
-              retainedData.arrLastSamples[
-                retainedData.arrLastSamples.length - 1
-              ].timestamp + 1; // 1 is a margin
-          }
-
-          let endTs: Timestamp;
-          let siqDevId: string = '';
-          let siqDevName: string = '';
-          let numberOfProcessedChunks = 0;
-          let i = 0;
-
-          while (i < arrTrapInfo.length) {
-            if (startTs >= arrTrapInfo[i].validFrom) { // this check is needed only for the first scan of the cycle
-              endTs = Date.now();
-              siqDevId = arrTrapInfo[i].siqDevId;
-              siqDevName = arrTrapInfo[i].siqDevName;
-              let j = i + 1;
-              while (j < arrTrapInfo.length) {
-                if (arrTrapInfo[i].siqDevId === arrTrapInfo[j].siqDevId) {
-                  // find infos with the same siqDevId
-                  j += 1;
-                  continue;
-                } else {
-                  endTs = arrTrapInfo[j].validFrom - 1;
-                  break;
-                }
-              }
-
-              if (siqDevId) {
-                const reader = steamIqChunkDataFetcher(
-                  siqDevId,
-                  startTs,
-                  endTs,
-                  CHUNK_SIZE,
-                  siqDevName
-                );
-                //csvFileChunkReader("../POL-16.csv"); // test with the file instead of real api
-
-                for await (const arrNewSamples of reader) {
-                  ({ arrSamplesForStoring, newRetainedData } = evalTrapStatus(
-                    arrNewSamples,
-                    arrTrapInfo,
-                    retainedData
-                  ));
-
-                  // prepare data for sharing
-                  const { forCsv, forIot } = prepTrapDataForStoring(
-                    arrSamplesForStoring,
-                    trapId,
-                    retainedData.arrLastSamples
-                  );
-                  retainedData = newRetainedData;
-                  numberOfProcessedChunks++;
-                  if (storeToFile) {
-                    await writeFile(
-                      trap.pathToFolder + PROC_DATA_FILE_STR,
-                      forCsv,
-                      {
-                        encoding: "utf8",
-                        flag: "a",
-                      }
-                    );
-                  }
-
-                  if (sendToIot) {
-                    // remove it later
-                    console.log(
-                      `\n----------------------------\nSending Message ${numberOfProcessedChunks} to the hub`
-                    );
-                    console.log(forIot.slice(0, 180) + "...");
-
-                    const message = new Message(forIot);
-                    console.log(
-                      `Sending message ${numberOfProcessedChunks} to the hub`
-                    );
-                    if (client) {
-                      // this "if" for TS only
-                      await client.sendEvent(message);
-                    }
-
-                    await new Promise(
-                      (
-                        resolve,
-                        reject // pause in order not to overload IoT hub
-                      ) => setTimeout(resolve, IOT_HUB_SEND_PAUSE_MS)
-                    );
-                  }
-                }
-              } else {
-                logger.info(`No SteamIQ device ID. The device must have been removed from Trap "${trapId}"`);
-              }
-              startTs = endTs + 1; // prepare startTs for the next cycle, it will be equal arrTrapInfo[j].validFrom. 
-              //Or it can be rqual to Date.now() + 1, which doesn't matter as this will be the last scan in the cycle.
-              i = j;
-            } else {
-              i += 1;
-            }
-          }
-          if (numberOfProcessedChunks > 0) {
-            await writeFile(
-              trap.pathToFolder + RET_DATA_FILE_STR,
-              JSON.stringify(retainedData, null, "\t"),
-              { encoding: "utf8", flag: "w" }
+      for ([plantName, plant] of Object.entries(domain)) {
+        logger.info(`Processing data for plant ${plantName}`);
+        for ([trapId, trap] of Object.entries(plant)) {
+          if (!trap.evaluate) {
+            logger.info(
+              `Trap ${trapId} is excluded from the evaluation of the status`
             );
-            logger.info(`Data for Trap ${trapId} was succesfuly processed`);
-          } else {
-            logger.info(`No data for Trap ${trapId} was processed`);
+            continue;
+          }
+          logger.info(`Processing data for trap ${trapId}`);
+          try {
+            // check the conf
             if (
-              retainedData &&
-              retainedData.arrLastSamples &&
-              checkArrayIsNotEmpty(retainedData.arrLastSamples)
+              //!trap.pathToInfoFile ||
+              //!trap.pathToRetDataFile ||
+              //!trap.pathToProcDataFile ||
+              !trap.pathToFolder ||
+              !trap.iotHubConStrRef
             ) {
-              const lastTs = retainedData.arrLastSamples[retainedData.arrLastSamples.length - 1].timestamp;
-              if (siqDevId && siqDevName && Date.now()- lastTs > TIME_DIFF_PROBLEM_DEV) {
-                arrProblemTraps.push(`Device ${siqDevName} hasn't been seen since ${(new Date(lastTs)).toISOString()},
-                \nplant ${plantName}, Trap ${trapId}`)
+              throw new Error(`No config data for Trap ${trapId}`);
+            }
+
+            // create an IoTHub client for this trap
+            if (sendToIot) {
+              connStr = process.env[trap.iotHubConStrRef] || "";
+              if (connStr === "") {
+                throw new Error(`No connection string for Trap ${trapId}`);
+              }
+              if (connStr === connStrPrev && client) {
+                connStrPrev = connStr; // we can use the client from the previous iteration
+              } else {
+                if (client) {
+                  client.close(() => {
+                    logger.info("IoT Hub client disconnected");
+                  });
+                }
+                logger.info("Create a new IoT Hub client");
+                client = createIotHubMqttClient(connStr);
+                logger.info("Trying to connect IoT Hub client to the hub");
+                await client.open();
+                connStrPrev = connStr; //if we managed to get to this point without an exception then the client got connected
               }
             }
+
+            // load the trap info list
+            const arrTrapInfoString = await readFile(
+              trap.pathToFolder + INFO_FILE_STR,
+              {
+                encoding: "utf8",
+              }
+            );
+            if (arrTrapInfoString.length < 2) {
+              throw Error(`No info for Trap ${trapId} found`);
+            }
+            const arrTrapInfo: TrapInfo[] = JSON.parse(arrTrapInfoString);
+            for (let item of arrTrapInfo) {
+              // convert ISO datetime string to a timestamp if neccessary
+              if (typeof item.validFrom === "string") {
+                item.validFrom = Date.parse(item.validFrom);
+              }
+            }
+            if (!checkArrayIsNotEmpty(arrTrapInfo)) {
+              throw new Error(`The info for Trap ${trapId} is corrupted`);
+            }
+            arrTrapInfo.sort((a, b) => a.validFrom - b.validFrom); // sort the array just in case
+
+            // load retained data object
+            const retainedDataString = await readFile(
+              trap.pathToFolder + RET_DATA_FILE_STR,
+              {
+                encoding: "utf8",
+              }
+            );
+            let retainedData: RetainedData;
+            let newRetainedData: RetainedData;
+            let arrSamplesForStoring: SampleForStoringInDb[];
+            // preparing initial start timestamp
+            let startTs: Timestamp;
+            if (retainedDataString.length < 2) {
+              // if the file doesn't exist or empty
+              retainedData = structuredClone(defaultRetainedData);
+              console.log(`Init with default retained data`);
+
+              startTs = arrTrapInfo[0].validFrom; // at least one record in this array must exist
+            } else {
+              retainedData = JSON.parse(retainedDataString);
+              console.log(`Retained data is taken from the file`);
+
+              if (
+                !retainedData ||
+                !retainedData.arrLastSamples ||
+                !checkArrayIsNotEmpty(retainedData.arrLastSamples)
+              ) {
+                throw `Retained data for trap ${trapId} is corrupted`;
+              }
+              startTs =
+                retainedData.arrLastSamples[
+                  retainedData.arrLastSamples.length - 1
+                ].timestamp + 1; // 1 is a margin
+            }
+
+            let endTs: Timestamp;
+            let siqDevId: string = '';
+            let siqDevName: string = '';
+            let numberOfProcessedChunks = 0;
+            let i = 0;
+
+            while (i < arrTrapInfo.length) {
+              if (startTs >= arrTrapInfo[i].validFrom) { // this check is needed only for the first scan of the cycle
+                endTs = Date.now();
+                siqDevId = arrTrapInfo[i].siqDevId;
+                siqDevName = arrTrapInfo[i].siqDevName;
+                let j = i + 1;
+                while (j < arrTrapInfo.length) {
+                  if (arrTrapInfo[i].siqDevId === arrTrapInfo[j].siqDevId) {
+                    // find infos with the same siqDevId
+                    j += 1;
+                    continue;
+                  } else {
+                    endTs = arrTrapInfo[j].validFrom - 1;
+                    break;
+                  }
+                }
+
+                if (siqDevId) {
+                  const reader = steamIqChunkDataFetcher(
+                    siqDevId,
+                    startTs,
+                    endTs,
+                    CHUNK_SIZE,
+                    siqDevName,
+                    token,
+                    username,
+                    password
+                  );
+                  //csvFileChunkReader("../POL-16.csv"); // test with the file instead of real api
+
+                  for await (const arrNewSamples of reader) {
+                    if (Array.isArray(arrNewSamples)) {
+                      ({ arrSamplesForStoring, newRetainedData } = evalTrapStatus(
+                        arrNewSamples,
+                        arrTrapInfo,
+                        retainedData
+                      ));
+
+                      // prepare data for sharing
+                      const { forCsv, forIot } = prepTrapDataForStoring(
+                        arrSamplesForStoring,
+                        trapId,
+                        retainedData.arrLastSamples
+                      );
+                      retainedData = newRetainedData;
+                      numberOfProcessedChunks++;
+                      if (storeToFile) {
+                        await writeFile(
+                          trap.pathToFolder + PROC_DATA_FILE_STR,
+                          forCsv,
+                          {
+                            encoding: "utf8",
+                            flag: "a",
+                          }
+                        );
+                      }
+
+                      if (sendToIot) {
+                        // remove it later
+                        console.log(
+                          `\n----------------------------\nSending Message ${numberOfProcessedChunks} to the hub`
+                        );
+                        console.log(forIot.slice(0, 180) + "...");
+
+                        const message = new Message(forIot);
+                        console.log(
+                          `Sending message ${numberOfProcessedChunks} to the hub`
+                        );
+                        if (client) {
+                          // this "if" for TS only
+                          await client.sendEvent(message);
+                        }
+
+                        await new Promise(
+                          (
+                            resolve,
+                            reject // pause in order not to overload IoT hub
+                          ) => setTimeout(resolve, IOT_HUB_SEND_PAUSE_MS)
+                        );
+                      }
+                    }
+                    else {
+                      token = arrNewSamples;
+                    }
+                  }
+                } else {
+                  logger.info(`No SteamIQ device ID. The device must have been removed from Trap "${trapId}"`);
+                }
+                startTs = endTs + 1; // prepare startTs for the next cycle, it will be equal arrTrapInfo[j].validFrom. 
+                //Or it can be rqual to Date.now() + 1, which doesn't matter as this will be the last scan in the cycle.
+                i = j;
+              } else {
+                i += 1;
+              }
+            }
+            if (numberOfProcessedChunks > 0) {
+              await writeFile(
+                trap.pathToFolder + RET_DATA_FILE_STR,
+                JSON.stringify(retainedData, null, "\t"),
+                { encoding: "utf8", flag: "w" }
+              );
+              logger.info(`Data for Trap ${trapId} was succesfuly processed`);
+            } else {
+              logger.info(`No data for Trap ${trapId} was processed`);
+              if (
+                retainedData &&
+                retainedData.arrLastSamples &&
+                checkArrayIsNotEmpty(retainedData.arrLastSamples)
+              ) {
+                const lastTs = retainedData.arrLastSamples[retainedData.arrLastSamples.length - 1].timestamp;
+                if (siqDevId && siqDevName && Date.now() - lastTs > TIME_DIFF_PROBLEM_DEV) {
+                  arrProblemTraps.push(`\nDevice ${siqDevName} hasn't been seen since ${(new Date(lastTs)).toISOString()},\nplant ${plantName}, Trap ${trapId}`)
+                }
+              }
+            }
+            await new Promise(
+              (
+                resolve,
+                reject // pause in order not to overload IoT hub
+              ) => setTimeout(resolve, BTW_TRAP_PROC_PAUSE_MS)
+            );
+          } catch (err) {
+            logger.error(
+              `Error while processing Trap ${trapId}: ${err as string}`
+            );
+            continue;
           }
-          await new Promise(
-            (
-              resolve,
-              reject // pause in order not to overload IoT hub
-            ) => setTimeout(resolve, BTW_TRAP_PROC_PAUSE_MS)
-          );
-        } catch (err) {
-          logger.error(
-            `Error while processing Trap ${trapId}: ${err as string}`
-          );
-          continue;
         }
       }
     }

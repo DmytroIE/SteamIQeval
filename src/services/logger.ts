@@ -1,7 +1,7 @@
 import fs from "fs";
 
 function logToFile(message: string) {
-  const logStream = fs.createWriteStream("../logs/log.txt", { flags: "a" });
+  const logStream = fs.createWriteStream("../logs/log.log", { flags: "a" });
   logStream.write(`${message}\n`);
   logStream.end();
   console.log(message);

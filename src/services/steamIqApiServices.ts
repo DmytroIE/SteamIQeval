@@ -2,14 +2,15 @@ import { logger } from "./logger";
 
 const STEAMIQ_API_LIMIT = 20000;
 
-let token: string = "";
-
 async function* steamIqChunkDataFetcher(
   siqDevId: string,
   startTs: number,
   endTs: number,
   chunkSize: number = 100,
-  siqDevName: string = ''
+  siqDevName: string = '',
+  token: string | undefined,
+  username: string,
+  password: string
 ) {
   try {
     if (startTs > endTs) {
@@ -18,8 +19,6 @@ async function* steamIqChunkDataFetcher(
       );
     }
 
-    const username = process.env.SIQ_API_USERNAME;
-    const password = process.env.SIQ_API_PASSWORD;
     if (!username || !password) {
       throw new Error(`No username or password is found for SteamIQ API`);
     }
@@ -39,7 +38,7 @@ async function* steamIqChunkDataFetcher(
         itemData = await responseItemInfo.json();
       }
     }
-    if ((responseItemInfo && responseItemInfo.ok !== true) || !token) {
+    else {
       // try to update the token first
       const responseToken = await fetch(
         "https://app.steamiq.com/api/auth/login",
@@ -53,6 +52,9 @@ async function* steamIqChunkDataFetcher(
       }
       const jsonToken = await responseToken.json();
       token = jsonToken.token;
+      if (token == undefined) {
+        throw new Error("The token is not valid");
+      }
       //try again
       responseItemInfo = await getDataWithToken(
         token,
@@ -113,24 +115,26 @@ async function* steamIqChunkDataFetcher(
       }
       if (dataChunk.length > 0) {
         yield dataChunk;
-      } else return;
+      } else yield token;
     } else {
       if (JSON.stringify(itemData) === "{}") {
-        const name = !siqDevName ? siqDevId: siqDevName;
+        const name = !siqDevName ? siqDevId : siqDevName;
         logger.info(
           `No data for ${name} from ${new Date(
             startTs
           ).toISOString()} till ${new Date(
             endTs
-            ).toISOString()}`
+          ).toISOString()}`
         );
-        return;
+        yield token;
       }
-      throw new Error("The data received from the SteamIQ API is corrupted");
+      else {
+        throw new Error(`The data received from the SteamIQ API is corrupted, ${JSON.stringify(itemData)}}`);
+      }
     }
   } catch (err) {
     logger.error(err as string);
-    return;
+    yield token;
   }
 }
 
